@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecAudit Pro | Enterprise Vulnerability Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        bg: '#0d1117', panel: '#161b22', border: '#30363d',
+                        accent: '#2ea043', accentHover: '#3fb950',
+                        textMain: '#c9d1d9', textMuted: '#8b949e', termBg: '#010409'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; }
+        .terminal { height: 220px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #30363d #010409; }
+        .log-info { color: #8b949e; }
+        .log-success { color: #3fb950; }
+        .log-error { color: #f85149; font-weight: 700; }
+        .tab-active { border-bottom: 2px solid #2ea043; color: #ffffff; }
+        .toast-enter { animation: toastIn 0.25s ease-out; }
+        .toast-exit { animation: toastOut 0.3s ease-in forwards; }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; } to { opacity: 0; transform: translateX(24px); } }
+        .modal-backdrop { background-color: rgba(1, 4, 9, 0.7); backdrop-filter: blur(2px); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans antialiased">
+
+    <div id="toastContainer" class="fixed top-20 right-6 z-[100] space-y-3 w-80 pointer-events-none"></div>
+
+    <header class="border-b border-border bg-panel/50 backdrop-blur-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-accent rounded-md flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight text-white">SecAudit <span class="text-accent">Pro</span></h1>
+                <span class="text-[10px] font-mono text-textMuted border border-border rounded px-1.5 py-0.5">v1.5.0</span>
+            </div>
+            <nav class="flex gap-6 text-sm font-medium">
+                <button onclick="switchTab('scanner')" id="tab-scanner" class="text-white transition pb-1 tab-active">Scanner</button>
+                <button onclick="switchTab('dashboard')" id="tab-dashboard" class="text-textMuted hover:text-white transition pb-1 border-b-2 border-transparent">Dashboard</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <div id="view-scanner" class="space-y-6">
+            <div class="bg-panel border border-border rounded-xl p-6 shadow-lg">
+                <div class="flex flex-col md:flex-row gap-4 mb-4">
+                    <div class="flex-1 relative">
+                        <label class="block text-xs font-medium text-textMuted mb-2 uppercase tracking-wider">Target Endpoint</label>
+                        <input type="text" id="targetUrl" placeholder="http://testphp.vulnweb.com" autocomplete="off"
+                               onfocus="showUrlHistory()"
+                               class="w-full bg-bg border border-border rounded-md px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+                        <div id="urlHistory" class="hidden absolute z-40 mt-1 w-full bg-panel border border-border rounded-md shadow-xl overflow-hidden"></div>
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <button onclick="openEngineModal()" title="Payload engine settings"
+                                class="bg-bg hover:bg-border text-textMain border border-border font-semibold py-2.5 px-4 rounded-md transition flex items-center gap-2 text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                            Engine
+                        </button>
+                        <button onclick="openAuthModal()"
+                                class="bg-bg hover:bg-border text-textMain border border-border font-semibold py-2.5 px-4 rounded-md transition flex items-center gap-2 text-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                            Auth
+                        </button>
+                        <button id="scanBtn" onclick="startScan()"
+                                class="bg-accent hover:bg-accentHover text-white font-semibold py-2.5 px-8 rounded-md transition">
+                            Initiate Scan
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <span id="authBadge" class="hidden inline-flex items-center gap-2 text-xs font-mono text-accent bg-accent/10 border border-accent/30 rounded-md px-3 py-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                        <span id="authBadgeText">Authenticated session active</span>
+                    </span>
+                    <span id="engineBadge" class="inline-flex items-center gap-2 text-xs font-mono text-textMuted bg-bg border border-border rounded-md px-3 py-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span id="engineBadgeText">Engine: standard library</span>
+                    </span>
+                </div>
+
+                <div id="progressWrap" class="hidden mb-4">
+                    <div class="flex justify-between text-[10px] uppercase tracking-wider text-textMuted mb-1">
+                        <span id="progressLabel">Scanning attack surfaces</span>
+                        <span id="progressCount" class="font-mono">0/0</span>
+                    </div>
+                    <div class="h-1.5 bg-border rounded-full overflow-hidden">
+                        <div id="progressBar" class="h-full bg-accent rounded-full transition-all duration-300" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <div class="bg-termBg border border-border rounded-lg p-4 font-mono text-xs">
+                    <div class="flex justify-between items-center mb-2 border-b border-border pb-2">
+                        <span class="text-textMuted uppercase tracking-widest text-[10px]">Live Output Stream</span>
+                        <div class="flex gap-1.5">
+                            <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                            <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                        </div>
+                    </div>
+                    <div id="terminal" class="terminal text-green-400/80">
+                        <p class="text-textMuted">System ready. Awaiting target...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultsArea" class="hidden space-y-4">
+
+                <!-- ENVIRONMENT INTELLIGENCE PANEL -->
+                <div id="envPanel" class="bg-panel border border-border rounded-xl overflow-hidden">
+                    <div class="px-5 py-3 border-b border-border bg-bg/30 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                        <span class="text-xs font-semibold text-textMain uppercase tracking-wider">Environment Intelligence</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
+                        <!-- WAF Status -->
+                        <div class="p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <svg class="w-4 h-4 text-textMuted" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                <span class="text-[10px] uppercase tracking-wider text-textMuted font-semibold">Web Application Firewall</span>
+                            </div>
+                            <div id="wafPanel" class="space-y-1">
+                                <div id="wafStatusLine" class="text-sm font-semibold text-textMain">Analyzing...</div>
+                                <div id="wafDetailLine" class="text-xs text-textMuted">Inspecting response headers</div>
+                            </div>
+                        </div>
+                        <!-- Tech Stack -->
+                        <div class="p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <svg class="w-4 h-4 text-textMuted" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                                <span class="text-[10px] uppercase tracking-wider text-textMuted font-semibold">Technology Stack</span>
+                            </div>
+                            <div id="techPanel" class="text-sm text-textMain">Analyzing...</div>
+                        </div>
+                        <!-- Scan Stats -->
+                        <div class="p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <svg class="w-4 h-4 text-textMuted" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                                <span class="text-[10px] uppercase tracking-wider text-textMuted font-semibold">Scan Statistics</span>
+                            </div>
+                            <div id="statsPanel" class="text-sm text-textMain">—</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <h2 class="text-xl font-semibold text-white">Audit Findings</h2>
+                    <button onclick="exportJSON()" class="bg-bg hover:bg-border text-textMain border border-border px-4 py-2 rounded-md text-xs font-semibold transition flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Download JSON Report
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="relative">
+                        <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-textMuted" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Search title, URL, payload..."
+                               class="w-full bg-bg border border-border rounded-md pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent">
+                    </div>
+                    <select id="severityFilter" onchange="applyFilters()"
+                            class="bg-bg border border-border rounded-md px-3 py-2 text-sm text-textMain focus:outline-none focus:ring-2 focus:ring-accent">
+                        <option value="all">All Severities</option>
+                        <option value="Critical">Critical</option>
+                        <option value="High">High</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Low">Low</option>
+                    </select>
+                    <select id="typeFilter" onchange="applyFilters()"
+                            class="bg-bg border border-border rounded-md px-3 py-2 text-sm text-textMain focus:outline-none focus:ring-2 focus:ring-accent">
+                        <option value="all">All Types</option>
+                        <option value="xss">Reflected XSS</option>
+                        <option value="dom_xss">DOM-Based XSS</option>
+                        <option value="sqli">SQL Injection</option>
+                        <option value="cve">Known CVE</option>
+                        <option value="missing_header">Missing Header</option>
+                    </select>
+                </div>
+
+                <div id="findingsContainer" class="grid gap-4"></div>
+            </div>
+        </div>
+
+        <div id="view-dashboard" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-panel border border-border rounded-xl p-6">
+                    <h3 class="text-sm font-semibold text-textMuted uppercase mb-4">Vulnerabilities Over Time</h3>
+                    <canvas id="vulnChart"></canvas>
+                    <div id="vulnChartEmpty" class="hidden"></div>
+                </div>
+                <div class="bg-panel border border-border rounded-xl p-6">
+                    <h3 class="text-sm font-semibold text-textMuted uppercase mb-4">Technology Stack Distribution</h3>
+                    <canvas id="techChart"></canvas>
+                    <div id="techChartEmpty" class="hidden"></div>
+                </div>
+            </div>
+
+            <div class="bg-panel border border-border rounded-xl overflow-hidden">
+                <div class="p-4 border-b border-border bg-bg/50">
+                    <h3 class="text-sm font-semibold text-textMain uppercase tracking-wider">Scan History</h3>
+                </div>
+                <table class="w-full text-sm text-left text-textMain">
+                    <thead class="text-xs text-textMuted uppercase bg-bg/80">
+                        <tr>
+                            <th class="px-6 py-3">Target</th>
+                            <th class="px-6 py-3">Date</th>
+                            <th class="px-6 py-3">Duration</th>
+                            <th class="px-6 py-3">Issues</th>
+                            <th class="px-6 py-3">Tech Stack</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- AUTH MODAL -->
+    <div id="authModal" class="hidden fixed inset-0 z-[90] modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-panel border border-border rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    Authenticated Scanning
+                </h3>
+                <button onclick="closeAuthModal()" class="text-textMuted hover:text-white transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <p class="text-xs text-textMuted mb-4">Credentials are kept in memory only for this session and are never stored on disk.</p>
+            <label class="block text-xs font-medium text-textMuted mb-1 uppercase tracking-wider">Authentication Type</label>
+            <select id="authType" class="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm text-textMain mb-3 focus:outline-none focus:ring-2 focus:ring-accent">
+                <option value="none">None (Anonymous)</option>
+                <option value="cookie">Cookie Header</option>
+                <option value="bearer">Bearer Token</option>
+            </select>
+            <label class="block text-xs font-medium text-textMuted mb-1 uppercase tracking-wider">Value</label>
+            <textarea id="authValue" rows="3" placeholder="session=abc123; user=admin   or   eyJhbGciOi..."
+                      class="w-full bg-bg border border-border rounded-md px-3 py-2 text-xs font-mono text-white focus:outline-none focus:ring-2 focus:ring-accent"></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+                <button onclick="clearAuth()" class="bg-bg hover:bg-border text-textMuted border border-border px-4 py-2 rounded-md text-xs font-semibold transition">Clear</button>
+                <button onclick="saveAuth()" class="bg-accent hover:bg-accentHover text-white px-4 py-2 rounded-md text-xs font-semibold transition">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ENGINE MODAL -->
+    <div id="engineModal" class="hidden fixed inset-0 z-[90] modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-panel border border-border rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Payload Engine
+                </h3>
+                <button onclick="closeEngineModal()" class="text-textMuted hover:text-white transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <label class="block text-xs font-medium text-textMuted mb-2 uppercase tracking-wider">Scan Depth</label>
+            <div class="space-y-2 mb-5">
+                <label class="flex items-start gap-3 bg-bg border border-border rounded-md p-3 cursor-pointer hover:border-accent/50 transition">
+                    <input type="radio" name="payloadMode" value="standard" checked class="mt-1 accent-[#2ea043]">
+                    <span>
+                        <span class="text-sm text-white font-medium">Standard (fast)</span>
+                        <span class="block text-xs text-textMuted mt-0.5">12 high-hit payloads. Recommended default, minimal request volume.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-3 bg-bg border border-border rounded-md p-3 cursor-pointer hover:border-accent/50 transition">
+                    <input type="radio" name="payloadMode" value="full" class="mt-1 accent-[#2ea043]">
+                    <span>
+                        <span class="text-sm text-white font-medium">Full (deep)</span>
+                        <span class="block text-xs text-textMuted mt-0.5">60+ payloads across 5 categories, capped at 48 per target.</span>
+                    </span>
+                </label>
+            </div>
+
+            <label class="block text-xs font-medium text-textMuted mb-2 uppercase tracking-wider">Custom Wordlist (SecLists compatible)</label>
+            <input type="file" id="wordlistFile" accept=".txt,.text" onchange="onWordlistFile(this)"
+                   class="w-full text-xs text-textMuted file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-bg file:text-textMain file:border file:border-border hover:file:bg-border transition">
+            <p id="wordlistInfo" class="text-xs font-mono text-textMuted mt-2">No custom wordlist loaded. Built-in library will be used.</p>
+
+            <div class="flex justify-end gap-2 mt-5">
+                <button onclick="clearWordlist()" class="bg-bg hover:bg-border text-textMuted border border-border px-4 py-2 rounded-md text-xs font-semibold transition">Clear Wordlist</button>
+                <button onclick="saveEngine()" class="bg-accent hover:bg-accentHover text-white px-4 py-2 rounded-md text-xs font-semibold transition">Save Engine Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DETAIL MODAL -->
+    <div id="detailModal" class="hidden fixed inset-0 z-[95] modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-panel border border-border rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6 shadow-2xl" id="detailContent"></div>
+    </div>
+
+    <footer class="border-t border-border mt-auto py-6 bg-panel/30">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-textMuted">
+            <p>Powered by <a href="https://mucahidbalci.github.io" target="_blank" class="text-accent hover:text-accentHover font-medium transition underline decoration-dotted underline-offset-4">mucahidbalci</a></p>
+        </div>
+    </footer>
+
+    <script>
+        const socket = io();
+        let vulnChart = null;
+        let techChart = null;
+        let lastScan = null;
+        let lastUrl = '';
+        let filteredFindings = [];
+        let authState = { type: 'none', value: '' };
+        let engineState = { mode: 'standard', wordlist: null, wordlistName: '' };
+
+        const SEV_STYLES = {
+            'Critical': 'bg-red-900/30 text-red-400 border border-red-800',
+            'High': 'bg-orange-900/30 text-orange-400 border border-orange-800',
+            'Medium': 'bg-yellow-900/30 text-yellow-400 border border-yellow-800',
+            'Low': 'bg-blue-900/30 text-blue-400 border border-blue-800'
+        };
+
+        const ICONS = {
+            success: '<svg class="w-5 h-5 text-accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            warning: '<svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>',
+            error: '<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            info: '<svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            clock: '<svg class="w-4 h-4 text-textMuted" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            copy: '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>',
+            external: '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>'
+        };
+
+        function emptyStateHTML(title, subtitle) {
+            return '<div class="flex flex-col items-center justify-center py-12 text-center">' +
+                '<svg class="w-16 h-16 text-accent/40 mb-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>' +
+                '<h4 class="text-base font-semibold text-white mb-1">' + title + '</h4>' +
+                '<p class="text-sm text-textMuted max-w-sm">' + subtitle + '</p></div>';
+        }
+
+        function showToast(type, title, message) {
+            const container = document.getElementById('toastContainer');
+            const borders = { success: 'border-accent/50', warning: 'border-yellow-700/60', error: 'border-red-800/70', info: 'border-blue-800/60' };
+            const toast = document.createElement('div');
+            toast.className = 'toast-enter pointer-events-auto bg-panel border ' + borders[type] + ' rounded-lg p-4 shadow-2xl flex items-start gap-3';
+            toast.innerHTML = ICONS[type] +
+                '<div class="flex-1"><p class="text-sm font-semibold text-white">' + title + '</p>' +
+                '<p class="text-xs text-textMuted mt-0.5">' + message + '</p></div>';
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function switchTab(tab) {
+            document.getElementById('view-scanner').classList.toggle('hidden', tab !== 'scanner');
+            document.getElementById('view-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+            document.getElementById('tab-scanner').classList.toggle('tab-active', tab === 'scanner');
+            document.getElementById('tab-dashboard').classList.toggle('tab-active', tab === 'dashboard');
+            document.getElementById('tab-scanner').classList.toggle('text-textMuted', tab !== 'scanner');
+            document.getElementById('tab-dashboard').classList.toggle('text-textMuted', tab !== 'dashboard');
+            if (tab === 'dashboard') loadDashboard();
+        }
+
+        function getUrlHistory() {
+            try { return JSON.parse(localStorage.getItem('secaudit_urls') || '[]'); } catch (e) { return []; }
+        }
+        function pushUrlHistory(url) {
+            let list = getUrlHistory().filter(u => u !== url);
+            list.unshift(url);
+            localStorage.setItem('secaudit_urls', JSON.stringify(list.slice(0, 5)));
+        }
+        function showUrlHistory() {
+            const list = getUrlHistory();
+            const box = document.getElementById('urlHistory');
+            if (!list.length) { box.classList.add('hidden'); return; }
+            box.innerHTML = list.map(u =>
+                '<div class="flex items-center gap-2 px-3 py-2 hover:bg-bg cursor-pointer text-xs font-mono text-textMain" onmousedown="pickUrl(\'' + u + '\')">' +
+                ICONS.clock + '<span class="truncate">' + u + '</span></div>'
+            ).join('');
+            box.classList.remove('hidden');
+        }
+        function pickUrl(url) {
+            document.getElementById('targetUrl').value = url;
+            document.getElementById('urlHistory').classList.add('hidden');
+        }
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#targetUrl') && !e.target.closest('#urlHistory')) {
+                document.getElementById('urlHistory').classList.add('hidden');
+            }
+        });
+
+        function openAuthModal() {
+            document.getElementById('authType').value = authState.type;
+            document.getElementById('authValue').value = authState.value;
+            document.getElementById('authModal').classList.remove('hidden');
+        }
+        function closeAuthModal() { document.getElementById('authModal').classList.add('hidden'); }
+        function saveAuth() {
+            authState.type = document.getElementById('authType').value;
+            authState.value = document.getElementById('authValue').value.trim();
+            const badge = document.getElementById('authBadge');
+            if (authState.type !== 'none' && authState.value) {
+                badge.classList.remove('hidden');
+                document.getElementById('authBadgeText').textContent = 'Authenticated session active (' + authState.type + ')';
+                showToast('success', 'Authentication configured', 'Requests will include your credentials.');
+            } else {
+                badge.classList.add('hidden');
+            }
+            closeAuthModal();
+        }
+        function clearAuth() {
+            authState = { type: 'none', value: '' };
+            document.getElementById('authType').value = 'none';
+            document.getElementById('authValue').value = '';
+            document.getElementById('authBadge').classList.add('hidden');
+            closeAuthModal();
+            showToast('info', 'Authentication cleared', 'Scans will run anonymously.');
+        }
+
+        function openEngineModal() { document.getElementById('engineModal').classList.remove('hidden'); }
+        function closeEngineModal() { document.getElementById('engineModal').classList.add('hidden'); }
+        function countPayloadLines(text) {
+            return text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#')).length;
+        }
+        function onWordlistFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                engineState.wordlist = reader.result;
+                engineState.wordlistName = file.name;
+                document.getElementById('wordlistInfo').textContent =
+                    file.name + ' - ' + countPayloadLines(reader.result) + ' payloads loaded';
+            };
+            reader.readAsText(file);
+        }
+        function clearWordlist() {
+            engineState.wordlist = null;
+            engineState.wordlistName = '';
+            document.getElementById('wordlistFile').value = '';
+            document.getElementById('wordlistInfo').textContent = 'No custom wordlist loaded. Built-in library will be used.';
+        }
+        function saveEngine() {
+            engineState.mode = document.querySelector('input[name=payloadMode]:checked').value;
+            const label = engineState.wordlist
+                ? 'custom wordlist (' + countPayloadLines(engineState.wordlist) + ')'
+                : engineState.mode + ' library';
+            document.getElementById('engineBadgeText').textContent = 'Engine: ' + label;
+            closeEngineModal();
+            showToast('success', 'Engine settings saved', 'Payload source: ' + label);
+        }
+
+        /* ---- Environment Intelligence Rendering ---- */
+        function renderEnvPanel(data) {
+            const wafStatus = document.getElementById('wafStatusLine');
+            const wafDetail = document.getElementById('wafDetailLine');
+            const techPanel = document.getElementById('techPanel');
+            const statsPanel = document.getElementById('statsPanel');
+
+            // WAF Logic
+            const vulnsFound = data.results.filter(r => r.type === 'vulnerability' && (r.category === 'xss' || r.category === 'sqli'));
+            const bypassed = data.waf_detected && vulnsFound.length > 0;
+
+            if (data.waf_detected) {
+                if (bypassed) {
+                    wafStatus.className = 'text-sm font-semibold text-accent flex items-center gap-2';
+                    wafStatus.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-accent animate-pulse"></span>Bypassed';
+                    wafDetail.innerHTML = '<span class="font-mono text-xs text-textMain">' + (data.waf_vendor || 'WAF').toUpperCase() + '</span> <span class="text-textMuted">detected but payloads got through</span>';
+                } else {
+                    wafStatus.className = 'text-sm font-semibold text-orange-400 flex items-center gap-2';
+                    wafStatus.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-orange-400"></span>Active';
+                    wafDetail.innerHTML = '<span class="font-mono text-xs text-textMain">' + (data.waf_vendor || 'WAF').toUpperCase() + '</span> <span class="text-textMuted">no vulnerability reflected (may be blocking)</span>';
+                }
+            } else {
+                wafStatus.className = 'text-sm font-semibold text-textMuted flex items-center gap-2';
+                wafStatus.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-textMuted/50"></span>Not Detected';
+                wafDetail.innerHTML = '<span class="text-textMuted">No WAF signature found in response headers</span>';
+            }
+
+            // Tech Stack
+            if (data.tech_stack && data.tech_stack.length > 0) {
+                techPanel.innerHTML = data.tech_stack.map(t =>
+                    '<span class="inline-block bg-bg border border-border rounded px-2 py-0.5 text-xs font-mono text-textMain mr-1 mb-1">' + t + '</span>'
+                ).join('');
+            } else {
+                techPanel.innerHTML = '<span class="text-textMuted text-xs">No technology signatures identified</span>';
+            }
+
+            // Stats
+            const totalVulns = data.results.filter(r => r.type === 'vulnerability').length;
+            const domXss = data.results.filter(r => r.category === 'dom_xss').length;
+            const reflected = data.results.filter(r => r.category === 'xss').length;
+            const sqli = data.results.filter(r => r.category === 'sqli').length;
+
+            statsPanel.innerHTML =
+                '<div class="flex items-center justify-between text-xs mb-1"><span class="text-textMuted">Duration</span><span class="font-mono text-textMain">' + data.duration + 's</span></div>' +
+                '<div class="flex items-center justify-between text-xs mb-1"><span class="text-textMuted">Total findings</span><span class="font-mono ' + (totalVulns > 0 ? 'text-red-400 font-bold' : 'text-accent font-bold') + '">' + totalVulns + '</span></div>' +
+                '<div class="flex items-center justify-between text-xs mb-1"><span class="text-textMuted">Reflected XSS</span><span class="font-mono text-textMain">' + reflected + '</span></div>' +
+                '<div class="flex items-center justify-between text-xs mb-1"><span class="text-textMuted">DOM-Based XSS</span><span class="font-mono text-textMain">' + domXss + '</span></div>' +
+                '<div class="flex items-center justify-between text-xs"><span class="text-textMuted">SQL Injection</span><span class="font-mono text-textMain">' + sqli + '</span></div>';
+        }
+
+        async function startScan() {
+            const url = document.getElementById('targetUrl').value.trim();
+            const btn = document.getElementById('scanBtn');
+            const term = document.getElementById('terminal');
+            if (!url) { showToast('warning', 'Missing target', 'Enter a valid URL before scanning.'); return; }
+
+            lastUrl = url;
+            pushUrlHistory(url);
+            term.innerHTML = '';
+            document.getElementById('resultsArea').classList.add('hidden');
+            document.getElementById('progressWrap').classList.add('hidden');
+            btn.disabled = true;
+            btn.innerText = 'Scanning...';
+
+            try {
+                const res = await fetch('/api/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: url,
+                        auth_type: authState.type,
+                        auth_value: authState.value,
+                        payload_mode: engineState.mode,
+                        custom_wordlist: engineState.wordlist
+                    })
+                });
+                if (!res.ok) throw new Error('Backend rejected the request');
+                showToast('info', 'Scan initiated', 'Live stream started for ' + url);
+            } catch (err) {
+                term.innerHTML += '<p class="log-error">> Failed to reach backend: ' + err.message + '</p>';
+                showToast('error', 'Scan failed', 'Could not reach the scanner backend.');
+                btn.disabled = false;
+                btn.innerText = 'Initiate Scan';
+            }
+        }
+
+        socket.on('scan_log', function (data) {
+            const term = document.getElementById('terminal');
+            const line = document.createElement('p');
+            line.className = 'log-' + data.level + ' mb-1';
+            line.textContent = '> ' + data.msg;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        });
+
+        socket.on('scan_progress', function (data) {
+            const wrap = document.getElementById('progressWrap');
+            if (!data.total) { wrap.classList.add('hidden'); return; }
+            wrap.classList.remove('hidden');
+            const pct = Math.round((data.current / data.total) * 100);
+            document.getElementById('progressBar').style.width = pct + '%';
+            document.getElementById('progressCount').textContent = data.current + '/' + data.total;
+            document.getElementById('progressLabel').textContent = data.message || 'Scanning attack surfaces';
+        });
+
+        socket.on('scan_complete', function (data) {
+            lastScan = data;
+            const btn = document.getElementById('scanBtn');
+            btn.disabled = false;
+            btn.innerText = 'Initiate Scan';
+
+            document.getElementById('progressBar').style.width = '100%';
+            setTimeout(() => document.getElementById('progressWrap').classList.add('hidden'), 800);
+
+            // Render environment panel
+            renderEnvPanel(data);
+
+            const vulns = data.results.filter(r => r.type === 'vulnerability');
+            const criticals = vulns.filter(v => v.severity === 'Critical');
+            if (criticals.length) {
+                showToast('error', 'Critical findings detected', criticals.length + ' critical issue(s) require immediate attention.');
+            } else if (vulns.length) {
+                showToast('warning', 'Scan completed', vulns.length + ' finding(s) recorded in history.');
+            } else {
+                showToast('success', 'Scan completed', 'No vulnerabilities detected on the target.');
+            }
+            applyFilters();
+        });
+
+        function applyFilters() {
+            if (!lastScan) return;
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const sev = document.getElementById('severityFilter').value;
+            const type = document.getElementById('typeFilter').value;
+
+            filteredFindings = lastScan.results.filter(r => r.type === 'vulnerability').filter(v => {
+                const hay = (v.title + ' ' + (v.url || '') + ' ' + (v.payload || '') + ' ' + (v.description || '')).toLowerCase();
+                const matchQuery = !query || hay.includes(query);
+                const matchSev = sev === 'all' || v.severity === sev;
+                const matchType = type === 'all' || v.category === type;
+                return matchQuery && matchSev && matchType;
+            });
+
+            document.getElementById('resultsArea').classList.remove('hidden');
+            renderFindings();
+        }
+
+        function renderFindings() {
+            const container = document.getElementById('findingsContainer');
+            const allVulns = lastScan ? lastScan.results.filter(r => r.type === 'vulnerability') : [];
+
+            if (allVulns.length === 0) {
+                container.innerHTML = '<div class="bg-panel border border-border rounded-xl">' +
+                    emptyStateHTML('All clear', 'No vulnerabilities were detected on the target surface during this scan.') + '</div>';
+                return;
+            }
+            if (filteredFindings.length === 0) {
+                container.innerHTML = '<div class="bg-panel border border-border rounded-xl">' +
+                    emptyStateHTML('No matching findings', 'Adjust the search terms or filters to widen the result set.') + '</div>';
+                return;
+            }
+
+            container.innerHTML = filteredFindings.map((v, i) => {
+                const style = SEV_STYLES[v.severity] || SEV_STYLES['Low'];
+                return '<div onclick="openDetail(' + i + ')" class="cursor-pointer bg-panel border border-border rounded-xl p-5 hover:border-accent/50 transition">' +
+                    '<div class="flex justify-between items-start mb-3">' +
+                        '<h3 class="text-lg font-semibold text-white">' + v.title + '</h3>' +
+                        '<span class="px-2 py-1 rounded-md text-xs font-bold ' + style + '">' + v.severity + '</span>' +
+                    '</div>' +
+                    '<p class="text-sm text-textMuted mb-2">' + (v.description || 'User input is reflected in the response without proper sanitization.') + '</p>' +
+                    (v.payload ? '<p class="text-xs font-mono text-accent bg-bg p-2 rounded border border-border break-all">' + v.payload + '</p>' : '') +
+                    (v.url ? '<p class="text-xs font-mono text-textMuted mt-2 break-all">' + (v.method || 'GET') + ' ' + v.url + '</p>' : '') +
+                    '<p class="text-[10px] text-textMuted mt-3 uppercase tracking-wider">Click for full technical detail</p>' +
+                '</div>';
+            }).join('');
+        }
+
+        function openDetail(index) {
+            const v = filteredFindings[index];
+            if (!v) return;
+            const style = SEV_STYLES[v.severity] || SEV_STYLES['Low'];
+            const refs = (v.references || []).map(r =>
+                '<a href="' + r + '" target="_blank" class="flex items-center gap-1.5 text-xs font-mono text-accent hover:text-accentHover transition">' +
+                ICONS.external + '<span class="truncate">' + r + '</span></a>').join('');
+            const payloadLabel = v.category === 'dom_xss' ? 'Evidence (inline script)' : 'Trigger Payload';
+
+            document.getElementById('detailContent').innerHTML =
+                '<div class="flex justify-between items-start mb-4">' +
+                    '<h3 class="text-xl font-semibold text-white pr-4">' + v.title + '</h3>' +
+                    '<button onclick="closeDetail()" class="text-textMuted hover:text-white transition"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg></button>' +
+                '</div>' +
+                '<div class="flex flex-wrap gap-2 mb-5">' +
+                    '<span class="px-2 py-1 rounded-md text-xs font-bold ' + style + '">' + v.severity + '</span>' +
+                    '<span class="px-2 py-1 rounded-md bg-bg border border-border text-textMuted text-xs font-mono">CVSS ' + (v.cvss || 'N/A') + '</span>' +
+                    '<span class="px-2 py-1 rounded-md bg-bg border border-border text-textMuted text-xs uppercase">' + (v.category || 'unknown') + '</span>' +
+                '</div>' +
+                '<div class="space-y-4 text-sm">' +
+                    '<div><p class="text-xs uppercase tracking-wider text-textMuted mb-1">Description</p><p class="text-textMain">' + (v.description || 'User input is reflected in the response without proper sanitization.') + '</p></div>' +
+                    (v.url ? '<div><p class="text-xs uppercase tracking-wider text-textMuted mb-1">Affected Endpoint</p><p class="font-mono text-xs text-textMain break-all">' + (v.method || 'GET') + ' ' + v.url + '</p></div>' : '') +
+                    (v.parameters ? '<div><p class="text-xs uppercase tracking-wider text-textMuted mb-1">Parameters</p><p class="font-mono text-xs text-textMain">' + v.parameters.join(', ') + '</p></div>' : '') +
+                    (v.payload ? '<div><div class="flex justify-between items-center mb-1"><p class="text-xs uppercase tracking-wider text-textMuted">' + payloadLabel + '</p><button onclick="copyText(\'' + v.payload.replace(/'/g, "\\'") + '\')" class="text-textMuted hover:text-white transition flex items-center gap-1 text-xs">' + ICONS.copy + 'Copy</button></div><code class="block bg-bg border border-border rounded-md p-3 text-xs font-mono text-red-400 break-all">' + v.payload + '</code></div>' : '') +
+                    '<div><div class="flex justify-between items-center mb-1"><p class="text-xs uppercase tracking-wider text-textMuted">Remediation</p><button onclick="copyText(\'' + (v.remediation || '').replace(/'/g, "\\'") + '\')" class="text-textMuted hover:text-white transition flex items-center gap-1 text-xs">' + ICONS.copy + 'Copy</button></div><p class="text-textMain">' + (v.remediation || 'Review the application logic.') + '</p></div>' +
+                    (refs ? '<div><p class="text-xs uppercase tracking-wider text-textMuted mb-2">References</p><div class="space-y-1.5">' + refs + '</div></div>' : '') +
+                '</div>';
+            document.getElementById('detailModal').classList.remove('hidden');
+        }
+        function closeDetail() { document.getElementById('detailModal').classList.add('hidden'); }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('success', 'Copied to clipboard', 'Content is ready to paste.');
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { closeDetail(); closeAuthModal(); closeEngineModal(); }
+        });
+
+        async function exportJSON() {
+            if (!lastScan) { showToast('warning', 'Nothing to export', 'Run a scan first.'); return; }
+            const res = await fetch('/api/export/json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ results: lastScan.results, target_url: lastUrl })
+            });
+            const blob = await res.blob();
+            const link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = 'secaudit_report.json';
+            link.click();
+            window.URL.revokeObjectURL(link.href);
+            showToast('success', 'Report exported', 'secaudit_report.json downloaded.');
+        }
+
+        async function loadDashboard() {
+            const res = await fetch('/api/history');
+            const history = await res.json();
+
+            const tbody = document.getElementById('historyTable');
+            const vulnEmpty = document.getElementById('vulnChartEmpty');
+            const techEmpty = document.getElementById('techChartEmpty');
+
+            if (!history.length) {
+                tbody.innerHTML = '<tr><td colspan="5">' +
+                    emptyStateHTML('No scan history', 'Completed scans will appear here with full analytics and trends.') +
+                    '</td></tr>';
+                document.getElementById('vulnChart').classList.add('hidden');
+                document.getElementById('techChart').classList.add('hidden');
+                vulnEmpty.innerHTML = emptyStateHTML('No data yet', 'Run at least one scan to build the timeline.');
+                techEmpty.innerHTML = emptyStateHTML('No data yet', 'Run at least one scan to map the stack.');
+                vulnEmpty.classList.remove('hidden');
+                techEmpty.classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('vulnChart').classList.remove('hidden');
+            document.getElementById('techChart').classList.remove('hidden');
+            vulnEmpty.classList.add('hidden');
+            techEmpty.classList.add('hidden');
+
+            tbody.innerHTML = history.map(h =>
+                '<tr class="border-b border-border hover:bg-bg/50">' +
+                    '<td class="px-6 py-4 font-mono text-xs text-accent break-all">' + h.target_url + '</td>' +
+                    '<td class="px-6 py-4 text-xs">' + new Date(h.scan_date).toLocaleString() + '</td>' +
+                    '<td class="px-6 py-4 text-xs">' + h.duration + 's</td>' +
+                    '<td class="px-6 py-4 text-xs font-bold ' + (h.total_vulns > 0 ? 'text-red-400' : 'text-accent') + '">' + h.total_vulns + '</td>' +
+                    '<td class="px-6 py-4 text-xs text-textMuted">' + (JSON.parse(h.tech_stack).join(', ') || 'Unknown') + '</td>' +
+                '</tr>'
+            ).join('');
+
+            const ctx1 = document.getElementById('vulnChart').getContext('2d');
+            if (vulnChart) vulnChart.destroy();
+            vulnChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: history.map(h => new Date(h.scan_date).toLocaleDateString()).reverse(),
+                    datasets: [{ label: 'Vulnerabilities', data: history.map(h => h.total_vulns).reverse(), borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', tension: 0.4, fill: true }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { color: '#30363d' } }, x: { grid: { display: false } } } }
+            });
+
+            const techCounts = {};
+            history.forEach(h => JSON.parse(h.tech_stack).forEach(t => { techCounts[t] = (techCounts[t] || 0) + 1; }));
+
+            const ctx2 = document.getElementById('techChart').getContext('2d');
+            if (techChart) techChart.destroy();
+            techChart = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(techCounts),
+                    datasets: [{ data: Object.values(techCounts), backgroundColor: ['#2ea043', '#3fb950', '#1f6feb', '#8957e5', '#f85149'] }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'right', labels: { color: '#c9d1d9' } } } }
+            });
+        }
+    </script>
+</body>
+</html>

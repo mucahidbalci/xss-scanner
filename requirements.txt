@@ -1,0 +1,6 @@
+flask
+flask-socketio
+httpx
+beautifulsoup4
+rich
+gunicorn
